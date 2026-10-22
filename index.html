@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>Mystery</title>
+<style>
+  :root { --bg:#0b0f1a; --panel:#141a2b; --line:#24304d; --text:#e8ecf6; --muted:#8f9ab3; --accent:#9fb4ff; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 280px;
+  }
+  h1 { margin: 6px 0 2px; font-size: 26px; letter-spacing: .5px; }
+  #status { color: var(--muted); margin: 0 0 14px; min-height: 22px; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px;
+  }
+  button.primary { width: 100%; background: var(--accent); color: #0b0f1a; font-weight: 700; border: 0; padding: 16px; font-size: 18px; }
+  button.primary.on { background: #ff8a8a; }
+  details, .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 14px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 14px; }
+  input[type=text], input[type=password], select {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+  }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  .row input { flex: 1; }
+  .small { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  #links a {
+    display: inline-block; margin: 6px 8px 0 0; padding: 10px 14px; border-radius: 12px;
+    background: #1f2a48; color: var(--accent); text-decoration: none; border: 1px solid var(--line);
+  }
+  #log div { margin: 10px 0; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); white-space: pre-wrap; }
+  #log .you { background: #1b2340; }
+  #log b { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; font-weight: 600; }
+
+  /* silver glowing orbs */
+  #orbs {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 230px; pointer-events: none;
+    opacity: 0; transition: opacity .3s;
+    background: linear-gradient(to bottom, rgba(10,15,30,0), rgba(10,15,30,.75));
+  }
+  #orbs.on { opacity: 1; }
+  .orb {
+    position: absolute; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffffff 0%, #c9ced8 55%, #7c8494 100%);
+    box-shadow: 0 0 40px 12px rgba(221,230,255,.55);
+  }
+  .main { width: 68px; height: 68px; left: calc(50% - 34px); bottom: calc(60px + env(safe-area-inset-bottom, 0px)); animation: pulse 1.8s ease-in-out infinite; }
+  .ring { position: absolute; left: 50%; bottom: calc(94px + env(safe-area-inset-bottom, 0px)); width: 0; height: 0; animation: spin 4s linear infinite; }
+  .ring .orb { width: 28px; height: 28px; top: -14px; box-shadow: 0 0 24px 8px rgba(221,230,255,.5); }
+  .ring .s1 { left: 66px; }
+  .ring .s2 { left: -94px; }
+  #orbs.thinking .ring { animation-duration: 1.2s; }
+  #orbs.speaking .main { animation-duration: .7s; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.22); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<h1>Mystery</h1>
+<p id="status">Tap Start, then say “Hey Mystery”.</p>
+
+<button id="startBtn" class="primary">Start</button>
+
+<details id="settings">
+  <summary>AI provider and key</summary>
+  <label for="provider">Provider</label>
+  <select id="provider"></select>
+  <label for="url">API URL</label>
+  <input id="url" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label for="model">Model name</label>
+  <input id="model" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label for="key">API key</label>
+  <input id="key" type="password" autocomplete="off">
+  <div class="row"><button id="saveBtn">Save provider and key</button></div>
+  <p class="small" id="saveNote">Your key is stored only in this browser on this phone. Each provider keeps its own key, so you can switch any time.</p>
+</details>
+
+<div class="box">
+  <button id="addFiles">Add files for Mystery to read</button>
+  <input id="fileIn" type="file" multiple style="display:none">
+  <p class="small" id="fileNote">No files added. Text files work best (txt, md, csv, json). Files stay in memory until you close this page.</p>
+</div>
+
+<div class="box">
+  <label for="typed" style="margin-top:0">Or type instead of speaking</label>
+  <div class="row">
+    <input id="typed" type="text" placeholder="Ask anything…" autocomplete="off">
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<div id="links"></div>
+<div id="log"></div>
+
+<div id="orbs">
+  <div class="orb main"></div>
+  <div class="ring"><div class="orb s1"></div><div class="orb s2"></div></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const PROVIDERS = {
+  Claude:     { url: "https://api.anthropic.com/v1/messages", model: "claude-sonnet-5-5" },
+  OpenAI:     { url: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" },
+  Gemini:     { url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: "gemini-3.5-flash" },
+  Groq:       { url: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile" },
+  OpenRouter: { url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-4o-mini" },
+  Custom:     { url: "", model: "" }
+};
+
+const SYSTEM = "Your name is Mystery. You are a voice assistant. Your replies are spoken aloud, so keep them short and natural, with no markdown and no lists. " +
+  "You can list and read the files the user added to the page, and you can show the user a tap-to-open link for a website or web app.";
+
+const TOOLS = [
+  { name: "list_files", description: "List the files the user has added to this page.",
+    input_schema: { type: "object", properties: {} } },
+  { name: "read_file", description: "Read a text file the user added, by file name.",
+    input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "open_website", description: "Show the user a tap-to-open link for a website or web app, for example YouTube. Pass a full https URL and a short label.",
+    input_schema: { type: "object", properties: { url: { type: "string" }, label: { type: "string" } }, required: ["url"] } }
+];
+const OPENAI_TOOLS = TOOLS.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+
+const WAKE = /\b(mystery|mistery|mistry)\b/i;
+
+let files = [];
+let history = [];
+let historyFor = "";
+let running = false, awake = false, busy = false;
+let rec = null, sleepTimer = null, wakeLock = null, audioCtx = null;
+
+/* ---------- storage ---------- */
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+function getCfg(name) {
+  let saved = {};
+  try { saved = JSON.parse(load("mystery.cfg." + name) || "{}"); } catch (e) {}
+  const d = PROVIDERS[name] || { url: "", model: "" };
+  return { url: saved.url ?? d.url, model: saved.model ?? d.model, key: saved.key ?? "" };
+}
+function fillFields(name) {
+  const c = getCfg(name);
+  $("url").value = c.url; $("model").value = c.model; $("key").value = c.key;
+}
+
+/* ---------- UI helpers ---------- */
+function status(t) { $("status").textContent = t; }
+function log(who, text) {
+  const d = document.createElement("div");
+  if (who === "You") d.className = "you";
+  const b = document.createElement("b"); b.textContent = who;
+  d.appendChild(b); d.appendChild(document.createTextNode(text));
+  $("log").prepend(d);
+}
+function setOrb(mode) {
+  const o = $("orbs");
+  o.classList.remove("thinking", "speaking");
+  if (mode === "thinking" || mode === "speaking") o.classList.add(mode);
+}
+function beep() {
+  try {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.frequency.value = 880; g.gain.value = 0.08;
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+  } catch (e) {}
+}
+
+/* ---------- settings ---------- */
+const sel = $("provider");
+Object.keys(PROVIDERS).forEach((n) => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
+sel.value = load("mystery.active") || "Claude";
+fillFields(sel.value);
+sel.addEventListener("change", () => fillFields(sel.value));
+$("saveBtn").addEventListener("click", () => {
+  const n = sel.value;
+  store("mystery.active", n);
+  store("mystery.cfg." + n, JSON.stringify({ url: $("url").value.trim(), model: $("model").value.trim(), key: $("key").value.trim() }));
+  history = [];
+  $("saveNote").textContent = "Saved. Using " + n + ".";
+});
+
+/* ---------- files ---------- */
+$("addFiles").addEventListener("click", () => $("fileIn").click());
+$("fileIn").addEventListener("change", (e) => {
+  for (const f of e.target.files) files.push(f);
+  $("fileNote").textContent = files.length + " file(s) added: " + files.map((f) => f.name).join(", ");
+  e.target.value = "";
+});
+
+/* ---------- tools ---------- */
+async function runTool(name, args) {
+  try {
+    if (name === "list_files") return files.length ? files.map((f) => f.name).join("\n") : "The user has not added any files yet.";
+    if (name === "read_file") {
+      const q = String(args.name || "").toLowerCase();
+      const f = files.find((x) => x.name.toLowerCase() === q) || files.find((x) => x.name.toLowerCase().includes(q));
+      if (!f) return "File not found.";
+      const t = await f.text();
+      return t.slice(0, 8000) || "The file is empty.";
+    }
+    if (name === "open_website") {
+      const u = new URL(String(args.url));
+      if (u.protocol !== "https:" && u.protocol !== "http:") return "Only web links are allowed.";
+      const a = document.createElement("a");
+      a.href = u.href; a.target = "_blank"; a.rel = "noopener";
+      a.textContent = "Open " + (args.label || u.hostname);
+      $("links").prepend(a);
+      return "A tap-to-open link is now on screen. Tell the user to tap it.";
+    }
+  } catch (e) { return "Error: " + e.message; }
+  return "Unknown tool.";
+}
+
+/* ---------- AI ---------- */
+function errMsg(d, status) {
+  const o = Array.isArray(d) ? d[0] : d;
+  return (o && o.error && (o.error.message || o.error)) || ("HTTP " + status);
+}
+
+async function askAI(text) {
+  const name = load("mystery.active") || "Claude";
+  const c = getCfg(name);
+  if (!c.url || !c.model) throw new Error("Open “AI provider and key” and fill in the URL and model.");
+  if (!c.key) throw new Error("No API key saved for " + name + ".");
+  if (historyFor !== name) { history = []; historyFor = name; }
+  const reply = c.url.includes("anthropic.com") ? await askAnthropic(text, c) : await askOpenAI(text, c);
+  if (history.length > 30) history = [];
+  return reply;
+}
+
+async function askAnthropic(text, c) {
+  history.push({ role: "user", content: text });
+  for (let n = 0; n < 6; n++) {
+    const r = await fetch(c.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json", "x-api-key": c.key,
+        "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({ model: c.model, max_tokens: 500, system: SYSTEM, tools: TOOLS, messages: history })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(errMsg(d, r.status));
+    history.push({ role: "assistant", content: d.content });
+    if (d.stop_reason !== "tool_use") {
+      return d.content.filter((b) => b.type === "text").map((b) => b.text).join("") || "Done.";
+    }
+    const results = [];
+    for (const b of d.content) {
+      if (b.type === "tool_use") results.push({ type: "tool_result", tool_use_id: b.id, content: await runTool(b.name, b.input || {}) });
+    }
+    history.push({ role: "user", content: results });
+  }
+  history = [];
+  return "Sorry, that took too many steps.";
+}
+
+async function askOpenAI(text, c) {
+  history.push({ role: "user", content: text });
+  for (let n = 0; n < 6; n++) {
+    const r = await fetch(c.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "Authorization": "Bearer " + c.key },
+      body: JSON.stringify({ model: c.model, messages: [{ role: "system", content: SYSTEM }, ...history], tools: OPENAI_TOOLS })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(errMsg(d, r.status));
+    const m = d.choices[0].message;
+    const calls = m.tool_calls || [];
+    const a = { role: "assistant", content: m.content ?? null };
+    if (calls.length) a.tool_calls = calls;
+    history.push(a);
+    if (!calls.length) return m.content || "Done.";
+    for (const t of calls) {
+      let args = {};
+      try { args = JSON.parse(t.function.arguments || "{}"); } catch (e) {}
+      history.push({ role: "tool", tool_call_id: t.id, content: await runTool(t.function.name, args) });
+    }
+  }
+  history = [];
+  return "Sorry, that took too many steps.";
+}
+
+/* ---------- wake / listen / speak ---------- */
+function wake() {
+  awake = true;
+  $("orbs").classList.add("on");
+  setOrb("listening");
+  status("Listening…");
+  beep();
+  armSleep();
+}
+function armSleep() {
+  clearTimeout(sleepTimer);
+  sleepTimer = setTimeout(() => { if (!busy) sleep(); }, 10000);
+}
+function sleep() {
+  clearTimeout(sleepTimer);
+  awake = false;
+  $("orbs").classList.remove("on");
+  setOrb("");
+  if (running) status("Say “Hey Mystery”.");
+}
+
+function onResult(e) {
+  let text = "", isFinal = false;
+  for (let i = e.resultIndex; i < e.results.length; i++) {
+    text += e.results[i][0].transcript;
+    if (e.results[i].isFinal) isFinal = true;
+  }
+  text = text.trim();
+  if (!text) return;
+  if (!awake) {
+    if (WAKE.test(text)) wake(); else if (isFinal) status("Heard: " + text);
+  }
+  if (awake && isFinal) {
+    const cmd = text.replace(/^.*?\b(mystery|mistery|mistry)\b[\s,.!?:;-]*/i, "").trim();
+    const use = WAKE.test(text) ? cmd : text;
+    if (use.length > 1) handle(use); else armSleep();
+  }
+}
+
+function listen() {
+  if (!running || busy || !rec) return;
+  try { rec.start(); } catch (e) {}
+}
+
+function initRec() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { status("This browser has no speech recognition. Use Chrome on Android."); return false; }
+  rec = new SR();
+  rec.lang = "en-US";
+  rec.continuous = false;
+  rec.interimResults = true;
+  rec.onresult = onResult;
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      running = false;
+      $("startBtn").textContent = "Start"; $("startBtn").classList.remove("on");
+      status("Microphone is blocked. Allow it in the browser’s site settings, then tap Start.");
+    }
+  };
+  rec.onend = () => setTimeout(listen, 250);
+  return true;
+}
+
+function speak(text, done) {
+  setOrb("speaking");
+  const clean = text.replace(/[*_#`>]/g, "");
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(clean);
+    u.onend = done; u.onerror = done;
+    speechSynthesis.speak(u);
+  } catch (e) { done(); }
+}
+
+async function handle(cmd) {
+  if (busy) return;
+  busy = true;
+  clearTimeout(sleepTimer);
+  try { rec && rec.abort(); } catch (e) {}
+  setOrb("thinking");
+  status("Thinking…");
+  log("You", cmd);
+  let reply;
+  try { reply = await askAI(cmd); }
+  catch (e) { reply = "Sorry, I could not reach the AI. " + e.message; history = []; }
+  log("Mystery", reply);
+  speak(reply, () => { busy = false; sleep(); listen(); });
+}
+
+$("sendBtn").addEventListener("click", () => {
+  const t = $("typed").value.trim();
+  if (!t || busy) return;
+  $("typed").value = "";
+  wake();
+  handle(t);
+});
+$("typed").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sendBtn").click(); });
+
+/* ---------- start / stop ---------- */
+async function keepAwake() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+
+$("startBtn").addEventListener("click", async () => {
+  const b = $("startBtn");
+  if (running) {
+    running = false;
+    try { rec.abort(); } catch (e) {}
+    try { wakeLock && wakeLock.release(); } catch (e) {}
+    sleep();
+    b.textContent = "Start"; b.classList.remove("on");
+    status("Stopped.");
+    return;
+  }
+  if (!rec && !initRec()) return;
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  running = true;
+  b.textContent = "Stop"; b.classList.add("on");
+  status("Say “Hey Mystery”. Keep this page open.");
+  await keepAwake();
+  listen();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && running) { keepAwake(); listen(); }
+});
+</script>
+</body>
+</html>
