@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mystery</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f1eefc;--ink:#171233;--mute:#645c85;--a:#6a4dff;--b:#0aa6c4;--card:#fff;--line:#d8d2f0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#07060f;--ink:#ece8ff;--mute:#9a92c4;--a:#8a6cff;--b:#38e8ff;--card:#13102a;--line:#2a2450;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#07060f;--ink:#ece8ff;--mute:#9a92c4;--a:#8a6cff;--b:#38e8ff;--card:#13102a;--line:#2a2450;color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 "Space Grotesk",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center}
+main{width:100%;max-width:520px;padding:14px 16px 20px;display:flex;flex-direction:column;flex:1;min-height:0}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{font-size:20px;letter-spacing:.35em;text-transform:uppercase;margin:0;font-weight:600}
+button,input{font:inherit}
+.ghost{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:999px;padding:8px 14px;cursor:pointer;font-weight:600}
+.ghost.on{border-color:var(--b);color:var(--b)}
+.orbwrap{display:grid;place-items:center;padding:22px 0 6px}
+#orb{width:170px;height:170px;border-radius:50%;border:0;cursor:pointer;position:relative;
+background:radial-gradient(circle at 35% 30%,var(--b),var(--a) 55%,#1a1040 100%);
+box-shadow:0 0 50px color-mix(in srgb,var(--a) 70%,transparent),inset 0 0 30px rgba(255,255,255,.25);animation:breathe 4s ease-in-out infinite}
+#orb::before,#orb::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1.5px solid var(--b);opacity:.5}
+#orb::after{inset:-28px;opacity:.25}
+#orb[data-s=listen]{animation:pulse .9s ease-in-out infinite}
+#orb[data-s=think]{animation:spin 1.2s linear infinite;background:conic-gradient(var(--b),var(--a),#1a1040,var(--b))}
+#orb[data-s=speak]{animation:talk .45s ease-in-out infinite}
+@keyframes breathe{50%{transform:scale(1.04)}}
+@keyframes pulse{50%{transform:scale(1.12)}}
+@keyframes spin{to{transform:rotate(1turn)}}
+@keyframes talk{25%{transform:scale(1.1)}60%{transform:scale(.97)}}
+@media (prefers-reduced-motion:reduce){#orb{animation:none!important}}
+#st{text-align:center;color:var(--mute);margin:18px 0 2px;letter-spacing:.08em}
+#hint{text-align:center;color:var(--mute);font-size:13px;margin:0 0 10px}
+#log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+.m{max-width:88%;padding:9px 13px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.u{align-self:flex-end;background:var(--a);color:#fff;border-color:var(--a)}
+.card{align-self:stretch;border:1.5px solid var(--b);border-radius:14px;padding:10px 13px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.card a{color:#fff;background:var(--a);padding:8px 14px;border-radius:999px;text-decoration:none;font-weight:600;white-space:nowrap}
+form{display:flex;gap:8px;margin-top:10px}
+form input{flex:1;min-width:0;padding:11px 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);color:var(--ink)}
+form button{background:var(--a);color:#fff;border:0;border-radius:999px;padding:0 18px;font-weight:600;cursor:pointer}
+input:focus-visible,button:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+#keybox{display:none;margin-top:8px;gap:8px}
+#keybox.show{display:flex}#keybox input{flex:1;min-width:0;padding:9px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Mystery</h1><button class="ghost" id="wake">Wake word: off</button></header>
+<div class="orbwrap"><button id="orb" data-s="idle" aria-label="Talk to Mystery"></button></div>
+<div id="st">Standing by</div>
+<p id="hint">Turn on the wake word, then say “Hey Mystery…”. Or tap the orb to talk once.</p>
+<div id="log" aria-live="polite"></div>
+<div id="keybox"><input id="key" type="password" placeholder="Anthropic API key (saved on this device)" autocomplete="off"><button class="ghost" id="savekey">Save</button></div>
+<form id="f"><input id="t" placeholder="Or type to Mystery" autocomplete="off"><button>Send</button></form>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,want=false,speaking=false,busy=false,armed=0,hist=[],voice=null;
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const state=s=>{$('#orb').dataset.s=s;$('#st').textContent={idle:'Standing by',listen:'Listening',think:'Thinking',speak:'Speaking'}[s]};
+const idle=()=>state(want?'listen':'idle');
+function log(who,text){const d=document.createElement('div');d.className='m '+(who==='you'?'u':'');d.textContent=text;$('#log').append(d);d.scrollIntoView({block:'end'})}
+
+/* ---------- voice out ---------- */
+function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^en/i.test(x.lang));voice=v.find(x=>/male|daniel|google uk/i.test(x.name))||v[0]||null}
+if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
+function speak(text){return new Promise(res=>{
+  if(!('speechSynthesis'in window)){res();return}
+  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);if(voice)u.voice=voice;u.rate=1.02;u.pitch=.85;
+  speaking=true;state('speak');u.onend=u.onerror=()=>{setTimeout(()=>{speaking=false;res()},500)};speechSynthesis.speak(u)})}
+
+/* ---------- brain ---------- */
+const sysPrompt=()=>`You are Mystery, a calm, witty, loyal voice assistant like Jarvis. Speak in 1 or 2 short sentences, natural for speech, no markdown or emoji. Now: ${new Date().toString()}.
+You are a web app on the user’s phone, so you can only trigger these actions, which the user taps to confirm: calendar, timer, url, call, text, map. You cannot lock the phone, set alarms or control other apps yet. If asked, say so honestly and offer the closest action.
+Reply with ONLY JSON: {"say":"...","action":null or one of {"type":"calendar","title":"","start":"YYYY-MM-DDTHH:MM","mins":60} {"type":"timer","seconds":300,"label":""} {"type":"url","url":"https://...","label":""} {"type":"call","number":""} {"type":"text","number":"","body":""} {"type":"map","q":""}}`;
+async function brain(text){
+  const sm=window.claude&&claude.use?await claude.use('sample'):null;
+  let raw;
+  if(sm){
+    const h=hist.slice(-6).map(m=>(m.role==='user'?'User: ':'Mystery: ')+m.content).join('\n');
+    raw=(await sm(sysPrompt()+'\n\nConversation so far:\n'+h+'\n\nUser: '+text,{cache:false})).text;
+  }else{
+    const key=store.get('mystery_key');
+    if(!key){$('#keybox').classList.add('show');throw new Error('Add your API key below once and I’ll remember it.')}
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:400,system:sysPrompt(),messages:[...hist.slice(-6),{role:'user',content:text}]})});
+    const j=await r.json();
+    if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+    raw=j.content[0].text;
+  }
+  let out;try{out=JSON.parse(raw.match(/\{[\s\S]*\}/)[0])}catch(e){out={say:raw,action:null}}
+  hist.push({role:'user',content:text},{role:'assistant',content:out.say||''});
+  return out;
+}
+
+/* ---------- actions ---------- */
+const stamp=d=>{const p=n=>String(n).padStart(2,'0');return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'T'+p(d.getHours())+p(d.getMinutes())+'00'};
+function card(label,href){const c=document.createElement('div');c.className='card';const s=document.createElement('span');s.textContent=label;c.append(s);
+  if(href){const a=document.createElement('a');a.href=href;a.target='_blank';a.rel='noopener';a.textContent='Open';c.append(a)}$('#log').append(c);c.scrollIntoView({block:'end'});return s}
+function act(a){
+  if(!a||!a.type)return;
+  if(a.type==='calendar'){const s=new Date(a.start);if(isNaN(s))return;const e=new Date(s.getTime()+(a.mins||60)*6e4);
+    card('Calendar: '+a.title,'https://calendar.google.com/calendar/r/eventedit?text='+encodeURIComponent(a.title||'Event')+'&dates='+stamp(s)+'/'+stamp(e))}
+  else if(a.type==='url'&&/^https:\/\//.test(a.url||''))card(a.label||new URL(a.url).hostname,a.url);
+  else if(a.type==='call')card('Call '+a.number,'tel:'+encodeURIComponent(a.number));
+  else if(a.type==='text')card('Text '+a.number,'sms:'+encodeURIComponent(a.number)+'?body='+encodeURIComponent(a.body||''));
+  else if(a.type==='map')card('Map: '+a.q,'https://www.google.com/maps/search/'+encodeURIComponent(a.q));
+  else if(a.type==='timer'){let n=Math.max(1,Math.round(a.seconds||60));const el=card('');const end=Date.now()+n*1000;
+    const iv=setInterval(()=>{const left=Math.ceil((end-Date.now())/1000);
+      if(left<=0){clearInterval(iv);el.textContent=(a.label||'Timer')+' is done';navigator.vibrate&&navigator.vibrate([300,150,300]);speak((a.label||'Your timer')+' is done.')}
+      else el.textContent=(a.label||'Timer')+': '+Math.floor(left/60)+':'+String(left%60).padStart(2,'0')},250)}
+}
+
+async function run(cmd){
+  if(busy||!cmd)return;busy=true;log('you',cmd);state('think');
+  try{const r=await brain(cmd);log('m',r.say||'Done.');act(r.action);await speak(r.say||'Done.')}
+  catch(e){log('m','I couldn’t reach my brain: '+e.message);}
+  busy=false;armed=Date.now()+7000;idle();
+}
+$('#f').onsubmit=e=>{e.preventDefault();const v=$('#t').value.trim();$('#t').value='';run(v)};
+$('#savekey').onclick=()=>{const k=$('#key').value.trim();if(k){store.set('mystery_key',k);$('#key').value='';$('#keybox').classList.remove('show');log('m','Key saved. I won’t ask again on this device.')}};
+
+/* ---------- listening ---------- */
+function listen(){
+  if(!SR){log('m','This browser can’t do voice input. Use Chrome on Android, or type below.');return false}
+  if(rec)return true;
+  rec=new SR();rec.continuous=true;rec.interimResults=false;rec.lang='en-US';
+  rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){
+    if(!e.results[i].isFinal||speaking||busy)continue;
+    const txt=e.results[i][0].transcript.trim();
+    const m=txt.match(/^(?:hey|hi|okay|ok)?[\s,]*(?:mystery|my story|misery)\b[\s,.!?]*(.*)$/i)||txt.match(/\b(?:hey )?(?:mystery)\b[\s,.!?]*(.*)$/i);
+    if(m){if(m[1].trim())run(m[1].trim());else{armed=Date.now()+8000;speak('Yes?').then(()=>{armed=Date.now()+8000;idle()})}}
+    else if(Date.now()<armed)run(txt);
+  }};
+  rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){want=false;rec=null;setWake();log('m','The mic is blocked here. Allow it, or open this file directly in Chrome.')}};
+  rec.onend=()=>{const r=rec;rec=null;if(want)setTimeout(()=>{if(want&&!rec){listen()}},250)};
+  try{rec.start()}catch(e){}
+  return true;
+}
+function setWake(){$('#wake').textContent='Wake word: '+(want?'on':'off');$('#wake').classList.toggle('on',want);idle()}
+$('#wake').onclick=()=>{want=!want;if(want){if(!listen())want=false}else if(rec){const r=rec;rec=null;r.onend=null;try{r.stop()}catch(e){}}setWake()};
+$('#orb').onclick=()=>{if(!want){want=true;if(!listen())want=false;setWake()}armed=Date.now()+8000;speechSynthesis&&speechSynthesis.cancel();state('listen')};
+</script>
+</body>
+</html>
